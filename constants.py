@@ -1,0 +1,22 @@
+import struct
+
+# Network settings
+AC_PORT = 9996
+BUFFER_SIZE = 65536
+SOCKET_TIMEOUT = 5.0
+
+# Operation IDs
+HANDSHAKE = 0
+SUBSCRIBE_UPDATE = 1
+SUBSCRIBE_SPOT = 2
+DISMISS = 3
+
+# Data structure sizes
+HANDSHAKE_SIZE = struct.calcsize('iii')
+HANDSHAKE_RESPONSE_SIZE = 208
+RTLAP_SIZE = 112
+
+# Default values
+DEFAULT_IDENTIFIER = 1
+DEFAULT_VERSION = 1
+AC_IDENTIFIER = 4242
