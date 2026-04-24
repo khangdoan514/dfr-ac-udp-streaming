@@ -1,9 +1,11 @@
 from confluent_kafka import Producer
 from client import ACTelemetryClient
 from constants import SUBSCRIBE_UPDATE
+from datetime import datetime, timezone
 import json
 import time
 import traceback
+import uuid
 
 # Kafka configuration
 KAFKA_CONFIG = {
@@ -11,6 +13,18 @@ KAFKA_CONFIG = {
 }
 
 KAFKA_TOPIC = 'ic26-decoded-can'
+SENSOR_ID = 'ac-telemetry-1'
+SENSOR_NAME = 'Assetto Corsa'
+STREAM_NAME = 'ac-telemetry'
+
+def build_kafka_message(body: dict) -> dict:
+    return {
+        'payload': {
+            'id': str(uuid.uuid4()),
+            'body': body,
+            'stream': STREAM_NAME,
+        }
+    }
 
 def main():
     # Kafka producer
@@ -19,9 +33,9 @@ def main():
     # Asessto Corsa client
     client = ACTelemetryClient("127.0.0.1")
     
-    def send_to_kafka(telemetry_data):
+    def send_to_kafka(message: dict):
         try:
-            data_json = json.dumps(telemetry_data)
+            data_json = json.dumps(message)
             kafka_producer.produce(
                 KAFKA_TOPIC,
                 data_json.encode('utf-8'),
@@ -30,13 +44,12 @@ def main():
         except Exception as e:
             print(f"Error sending to Kafka: {e}")
     
-    def parse_telemetry_dict(telemetry):
+    def telemetry_channels(telemetry):
         return {
+            'event_type': 'telemetry',
             'speed_Kmh': telemetry.speed_Kmh,
             'speed_Mph': telemetry.speed_Mph,
             'speed_Ms': telemetry.speed_Ms,
-            'timestamp': time.time(),
-            'source': 'Assetto Corsa',
             'isAbsEnabled': telemetry.isAbsEnabled,
             'isAbsInAction': telemetry.isAbsInAction,
             'isTcInAction': telemetry.isTcInAction,
@@ -83,23 +96,29 @@ def main():
         client.subscribe(SUBSCRIBE_UPDATE)
         
         # Send session start to Kafka
-        init_data = {
+        session_body = {
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'sensor_id': SENSOR_ID,
+            'sensor_name': SENSOR_NAME,
             'event_type': 'session_start',
             'car': response.carName,
             'driver': response.driverName,
             'track': response.trackName,
-            'timestamp': time.time()
         }
-        send_to_kafka(init_data)
+        send_to_kafka(build_kafka_message(session_body))
         
         # Show data
         def on_telemetry(telemetry):
             gear = telemetry.gear_text()
             
-            # Send to Kafka
-            data = parse_telemetry_dict(telemetry)
-            data['event_type'] = 'telemetry'
-            send_to_kafka(data)
+            # Send to Kafka: one message per AC sample, many channels in body
+            body = {
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'sensor_id': SENSOR_ID,
+                'sensor_name': SENSOR_NAME,
+                **telemetry_channels(telemetry),
+            }
+            send_to_kafka(build_kafka_message(body))
             
             # Print
             print(f"\rSpeed: {telemetry.speed_Kmh:6.1f} km/h | "
@@ -120,12 +139,13 @@ def main():
     except KeyboardInterrupt:
         print("\n\nStopping...")
         
-        # Send session end to Kafka
-        end_data = {
+        end_body = {
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'sensor_id': SENSOR_ID,
+            'sensor_name': SENSOR_NAME,
             'event_type': 'session_end',
-            'timestamp': time.time()
         }
-        send_to_kafka(end_data)
+        send_to_kafka(build_kafka_message(end_body))
         kafka_producer.flush()
         print(f"Flushed messages to Kafka topic: {KAFKA_TOPIC}")
         
